@@ -155,13 +155,37 @@ void UserEventManager::InputSDLEvent(const SDL_Event& event) {
       keyPressed.erase(event.key.keysym.sym);
       keyPressedMutex.unlock();
       break;
+    case SDL_MOUSEMOTION: {
+      std::lock_guard<std::mutex> lock(mousePositionMutex);
+      mouseX = event.motion.x;
+      mouseY = event.motion.y;
+      mousePositionKnown = true;
+      break;
+    }
+    case SDL_MOUSEWHEEL: {
+      std::lock_guard<std::mutex> lock(mousePositionMutex);
+      mouseWheelY += event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -event.wheel.y : event.wheel.y;
+      break;
+    }
     case SDL_MOUSEBUTTONDOWN:
+      {
+        std::lock_guard<std::mutex> lock(mousePositionMutex);
+        mouseX = event.button.x;
+        mouseY = event.button.y;
+        mousePositionKnown = true;
+      }
       mousePressedMutex.lock();
       if (event.button.button >= 0 && event.button.button < 32)
         mousePressed[event.button.button] = true;
       mousePressedMutex.unlock();
       break;
     case SDL_MOUSEBUTTONUP:
+      {
+        std::lock_guard<std::mutex> lock(mousePositionMutex);
+        mouseX = event.button.x;
+        mouseY = event.button.y;
+        mousePositionKnown = true;
+      }
       mousePressedMutex.lock();
       if (event.button.button >= 0 && event.button.button < 32)
         mousePressed[event.button.button] = false;
@@ -326,6 +350,22 @@ bool UserEventManager::GetMouseButtonState(int sdlButtonID) const {
     return false;
   std::unique_lock<std::mutex> lock(mousePressedMutex);
   return mousePressed[sdlButtonID];
+}
+
+bool UserEventManager::GetMousePosition(int& x, int& y) const {
+  std::lock_guard<std::mutex> lock(mousePositionMutex);
+  if (!mousePositionKnown)
+    return false;
+  x = mouseX;
+  y = mouseY;
+  return true;
+}
+
+int UserEventManager::ConsumeMouseWheelY() {
+  std::lock_guard<std::mutex> lock(mousePositionMutex);
+  int wheel = mouseWheelY;
+  mouseWheelY = 0;
+  return wheel;
 }
 
 Vector3 UserEventManager::GetMouseRelativePos() const {
