@@ -51,6 +51,10 @@ public:
 
   bool GetMouseButtonState(int sdlButtonID) const;
   Vector3 GetMouseRelativePos() const;
+  // Window coordinates are sampled by the SDL event thread for safe game-thread use.
+  bool GetMousePosition(int& x, int& y) const;
+  // Returns and clears the accumulated vertical scroll since the previous read.
+  int ConsumeMouseWheelY();
 
   // Clamped to the slots this manager tracks; SDL may report more devices.
   int GetJoystickCount() { return std::min(SDL_NumJoysticks(), _JOYSTICK_MAX); }
@@ -85,6 +89,11 @@ protected:
   std::atomic<int> keymapGeneration{0};
 
   bool mousePressed[32];
+  mutable std::mutex mousePositionMutex;
+  int mouseX = 0;
+  int mouseY = 0;
+  bool mousePositionKnown = false;
+  int mouseWheelY = 0;
 
   SDL_Joystick* joystick[_JOYSTICK_MAX];
   // Stable mapping: joystickInstanceNow[slot] holds the SDL instance ID that
