@@ -323,6 +323,12 @@ protected:
   float cameraUserFOV;
   float cameraUserAngleFactor;
 
+  // Optional experimental overhead camera. Keeps the legacy match camera available.
+  bool rtsCameraEnabled = false;
+  bool rtsCameraToggleHeld = false;
+  Vector3 rtsCameraCenter = Vector3(0.0f, 0.0f, 0.0f);
+  float rtsCameraHeight = 95.0f;
+
   std::shared_ptr<AnimCollection> anims;
 
   const std::vector<IHIDevice*>& controllers;

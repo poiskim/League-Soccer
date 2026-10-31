@@ -950,6 +950,49 @@ void Match::SetCameraParams(float zoom, float height, float fov, float angleFact
 }
 
 void Match::UpdateIngameCamera() {
+  // Experimental RTS-style camera. Toggle with F8; the original camera remains the default.
+  const auto& input = UserEventManager::GetInstance();
+  const bool toggleDown = input.GetKeyboardState(SDLK_F8);
+  if (toggleDown && !rtsCameraToggleHeld) {
+    rtsCameraEnabled = !rtsCameraEnabled;
+    if (rtsCameraEnabled) {
+      rtsCameraCenter = ball->Predict(0).Get2D();
+      SpamMessage("RTS camera ON: IJKL pan, +/- zoom, F8 toggle", 3500);
+    } else {
+      SpamMessage("RTS camera OFF: normal broadcast view", 2500);
+      camPos.clear();  // discard old follow-camera smoothing samples
+    }
+  }
+  rtsCameraToggleHeld = toggleDown;
+
+  if (rtsCameraEnabled) {
+    // Movement is deliberately independent of the ball and selected player.
+    const float panStep = 0.15f * (rtsCameraHeight / 95.0f);
+    if (input.GetKeyboardState(SDLK_j)) rtsCameraCenter.coords[0] -= panStep;
+    if (input.GetKeyboardState(SDLK_l)) rtsCameraCenter.coords[0] += panStep;
+    if (input.GetKeyboardState(SDLK_i)) rtsCameraCenter.coords[1] += panStep;
+    if (input.GetKeyboardState(SDLK_k)) rtsCameraCenter.coords[1] -= panStep;
+    rtsCameraCenter.coords[0] = clamp(rtsCameraCenter.coords[0], -pitchHalfW, pitchHalfW);
+    rtsCameraCenter.coords[1] = clamp(rtsCameraCenter.coords[1], -pitchHalfH, pitchHalfH);
+    rtsCameraCenter.coords[2] = 0.0f;
+
+    if (input.GetKeyboardState(SDLK_EQUALS) || input.GetKeyboardState(SDLK_KP_PLUS))
+      rtsCameraHeight -= 0.4f;
+    if (input.GetKeyboardState(SDLK_MINUS) || input.GetKeyboardState(SDLK_KP_MINUS))
+      rtsCameraHeight += 0.4f;
+    rtsCameraHeight = clamp(rtsCameraHeight, 55.0f, 180.0f);
+
+    // Reuse the working birds-eye orientation already supported by the match renderer.
+    // This is a perspective overhead prototype, not an orthographic projection yet.
+    cameraOrientation = QUATERNION_IDENTITY;
+    cameraNodeOrientation = QUATERNION_IDENTITY;
+    cameraNodePosition = rtsCameraCenter + Vector3(0.0f, 0.0f, rtsCameraHeight);
+    cameraFOV = 28.0f;
+    cameraNearCap = 1.0f;
+    cameraFarCap = 300.0f;
+    return;
+  }
+
   // camera
 
   float fov;
