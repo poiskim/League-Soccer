@@ -446,6 +446,12 @@ void GeneratePitch(int resX, int resY, int resSpecularX, int resSpecularY, int r
   }
   SDL_FreeSurface(seamless);
 
+  // The original overlay contains large baked dark patches that can look like
+  // clouds hiding players when the camera is far overhead. For tactical play,
+  // use clean grass by default; set rts_clear_pitch_overlay=0 in football.config
+  // to restore the original weathered/shaded grass texture.
+  const bool clearTacticalOverlay =
+      GetConfiguration()->GetBool("rts_clear_pitch_overlay", true);
   SDL_Surface* overlay = IMG_Load("media/textures/pitch/overlay.png");
   SDL_PixelFormat overlayFormat = *overlay->format;
   overlayTexW = overlay->w;
@@ -458,7 +464,8 @@ void GeneratePitch(int resX, int resY, int resSpecularX, int resSpecularY, int r
       Uint8 r, g, b, a;
       SDL_GetRGBA(pixel, &overlayFormat, &r, &g, &b, &a);
       overlayTex[y * overlay->w + x] = Vector3(r, g, b);
-      overlay_alphaTex[y * overlay->w + x] = a / 255.0f;
+      overlay_alphaTex[y * overlay->w + x] =
+          clearTacticalOverlay ? 0.0f : a / 255.0f;
       // printf("alpha: %f\n", overlay_alphaTex[y * overlay->w + x]);
     }
   }
