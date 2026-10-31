@@ -7,6 +7,7 @@
 #include "../main.hpp"
 #include "../utils.hpp"
 #include "AIsupport/AIfunctions.hpp"
+#include "base/geometry/line.hpp"
 #include "base/geometry/triangle.hpp"
 #include "base/log.hpp"
 #include "managers/resourcemanagerpool.hpp"
