@@ -1698,8 +1698,9 @@ void Match::Put() {
   // The debug overlay is transparent except while drawing an active marquee.
   auto clearMarquee = [&]() {
     if (rtsDragOverlayDrawn && GetDebugOverlay()) {
-      int width = 0, height = 0, bits = 0;
-      GetScene2D()->GetContextSize(width, height, bits);
+      const Vector3 overlaySize = GetDebugOverlay()->GetSize();
+      const int width = static_cast<int>(overlaySize.coords[0]);
+      const int height = static_cast<int>(overlaySize.coords[1]);
       GetDebugOverlay()->DrawRectangle(0, 0, width, height,
                                        Vector3(0, 0, 0), 0);
       GetDebugOverlay()->OnChange();
@@ -1728,8 +1729,9 @@ void Match::Put() {
     const bool dragging = leftDown && mouseKnown &&
         (abs(mouseX - rtsLeftStartX) > 9 || abs(mouseY - rtsLeftStartY) > 9);
     if (dragging && GetDebugOverlay()) {
-      int screenW = 0, screenH = 0, bpp = 0;
-      GetScene2D()->GetContextSize(screenW, screenH, bpp);
+      const Vector3 overlaySize = GetDebugOverlay()->GetSize();
+      const int screenW = static_cast<int>(overlaySize.coords[0]);
+      const int screenH = static_cast<int>(overlaySize.coords[1]);
       const int left = clamp(std::min(rtsLeftStartX, mouseX), 0, screenW - 1);
       const int top = clamp(std::min(rtsLeftStartY, mouseY), 0, screenH - 1);
       const int right = clamp(std::max(rtsLeftStartX, mouseX), 0, screenW - 1);
