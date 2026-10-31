@@ -976,6 +976,7 @@ void Match::UpdateIngameCamera() {
   const bool toggleDown = input.GetKeyboardState(SDLK_F8);
   if (toggleDown && !rtsCameraToggleHeld) {
     rtsCameraEnabled = !rtsCameraEnabled;
+    input.SetTacticalMouseGrab(rtsCameraEnabled.load());
     if (rtsCameraEnabled) {
       rtsCameraCenter = ball->Predict(0).Get2D();
       rtsMiddleHeld = false;
@@ -990,6 +991,16 @@ void Match::UpdateIngameCamera() {
   rtsCameraToggleHeld = toggleDown;
 
   if (rtsCameraEnabled) {
+    // LoL-like focus: Space recenters on the closest friendly player to the
+    // ball. Keep following that player only while Space is held.
+    if (input.GetKeyboardState(SDLK_SPACE) && rtsSpaceFollowPlayerId >= 0) {
+      const int teamId = rtsKeyboardTeamId.load();
+      if (teamId >= 0 && teamId < 2) {
+        Player* followed = teams[teamId]->GetPlayer(rtsSpaceFollowPlayerId);
+        if (followed && followed->IsActive())
+          rtsCameraCenter = followed->GetPosition().Get2D();
+      }
+    }
     // Follow the mouse at screen edges, independently of ball and player motion.
     int mouseX = 0, mouseY = 0;
     const bool mouseKnown = input.GetMousePosition(mouseX, mouseY);
@@ -1030,6 +1041,15 @@ void Match::UpdateIngameCamera() {
     if (input.GetKeyboardState(SDLK_MINUS) || input.GetKeyboardState(SDLK_KP_MINUS))
       rtsCameraHeight += 0.4f;
     rtsCameraHeight = clamp(rtsCameraHeight, 55.0f, 180.0f);
+    // Space focus should not be pulled away by edge pan or drag.
+    if (input.GetKeyboardState(SDLK_SPACE) && rtsSpaceFollowPlayerId >= 0) {
+      const int teamId = rtsKeyboardTeamId.load();
+      if (teamId >= 0 && teamId < 2) {
+        Player* followed = teams[teamId]->GetPlayer(rtsSpaceFollowPlayerId);
+        if (followed && followed->IsActive())
+          rtsCameraCenter = followed->GetPosition().Get2D();
+      }
+    }
     rtsCameraCenter.coords[0] = clamp(rtsCameraCenter.coords[0], -pitchHalfW, pitchHalfW);
     rtsCameraCenter.coords[1] = clamp(rtsCameraCenter.coords[1], -pitchHalfH, pitchHalfH);
     rtsCameraCenter.coords[2] = 0.0f;
@@ -1263,6 +1283,36 @@ void Match::Process() {
         }
       }
       rtsKeyboardTeamId.store(keyboardTeam);
+
+      // Space works on offense and defense: find the nearest active player
+      // on the keyboard-controlled team to the live ball, and assign that
+      // player's HumanGamer controller. The camera snaps there immediately.
+      const bool spaceDown = UserEventManager::GetInstance().GetKeyboardState(SDLK_SPACE);
+      if (spaceDown && !rtsSpaceHeld && keyboardGamer &&
+          keyboardGamer->GetLockedPlayerID() == -1) {
+        std::vector<Player*> eligible;
+        GetActiveTeamPlayers(keyboardTeam, eligible);
+        const Vector3 ballPosition = ball->Predict(0).Get2D();
+        Player* nearest = nullptr;
+        float nearestDist = 1.0e20f;
+        for (Player* candidate : eligible) {
+          const float distance = (candidate->GetPosition().Get2D() - ballPosition).GetLength();
+          if (distance < nearestDist) {
+            nearestDist = distance;
+            nearest = candidate;
+          }
+        }
+        if (nearest) {
+          keyboardGamer->SetSelectedPlayerID(nearest->GetID());
+          rtsMovingPlayerId = -1;
+          rtsSpaceFollowPlayerId = nearest->GetID();
+          rtsSpaceSelectedPlayerId.store(nearest->GetID());
+        }
+      }
+      if (!spaceDown)
+        rtsSpaceFollowPlayerId = -1;
+      rtsSpaceHeld = spaceDown;
+
       const int requestedID = rtsRequestedPlayerId.exchange(-1);
       if (keyboardGamer && requestedID >= 0) {
         Player* requested = teams[keyboardTeam]->GetPlayer(requestedID);
@@ -1287,6 +1337,9 @@ void Match::Process() {
       rtsKeyboardTeamId.store(-1);
       rtsMovingPlayerId = -1;
       rtsRequestedPlayerId.store(-1);
+      rtsSpaceFollowPlayerId = -1;
+      rtsSpaceHeld = false;
+      UserEventManager::GetInstance().SetTacticalMouseGrab(false);
     }
 
     teams[0]->UpdateSwitch();
@@ -1715,6 +1768,11 @@ void Match::Put() {
   };
 
   if (rtsActive) {
+    // Sync a Space-select event into the render-owned ring/UI state.
+    const int spaceSelected = rtsSpaceSelectedPlayerId.exchange(-1);
+    if (spaceSelected >= 0)
+      rtsSelectedPlayerId = spaceSelected;
+
     const bool leftDown = userInput.GetMouseButtonState(SDL_BUTTON_LEFT);
     const bool rightDown = userInput.GetMouseButtonState(SDL_BUTTON_RIGHT);
     const int selectedTeam = rtsKeyboardTeamId.load();
