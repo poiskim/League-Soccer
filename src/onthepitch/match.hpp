@@ -339,6 +339,8 @@ protected:
   int rtsPreviousMouseX = 0;
   int rtsPreviousMouseY = 0;
   bool rtsLeftHeld = false;
+  bool rtsRightHeld = false;
+  bool rtsDragOverlayDrawn = false;
   int rtsLeftStartX = 0;
   int rtsLeftStartY = 0;
   int rtsSelectedPlayerId = -1;       // renderer-owned visual selection
@@ -353,6 +355,7 @@ protected:
   int rtsMovingPlayerId = -1;
   Vector3 rtsMovingTarget;
   bool rtsRadarHidden = false;
+  bool rtsRadarWasVisible = false;
 
   std::shared_ptr<AnimCollection> anims;
 
