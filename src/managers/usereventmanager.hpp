@@ -56,6 +56,11 @@ public:
   // Returns and clears the accumulated vertical scroll since the previous read.
   int ConsumeMouseWheelY();
 
+  // Desired grab state is written by the match game thread and applied on the
+  // SDL window/event thread. Focus loss always releases the actual grab.
+  void SetTacticalMouseGrab(bool enabled) { tacticalMouseGrab.store(enabled); }
+  bool WantsTacticalMouseGrab() const { return tacticalMouseGrab.load(); }
+
   // Clamped to the slots this manager tracks; SDL may report more devices.
   int GetJoystickCount() { return std::min(SDL_NumJoysticks(), _JOYSTICK_MAX); }
   // Clears held keys/buttons, e.g. when the window loses focus and the
@@ -88,6 +93,7 @@ protected:
   unsigned long lastKeyTime_ms = 0;
   std::atomic<int> keymapGeneration{0};
 
+  std::atomic<bool> tacticalMouseGrab{false};
   bool mousePressed[32];
   mutable std::mutex mousePositionMutex;
   int mouseX = 0;
