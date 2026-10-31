@@ -1,11 +1,13 @@
 #include "match.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <random>
 
 #include "../main.hpp"
 #include "../utils.hpp"
 #include "AIsupport/AIfunctions.hpp"
+#include "base/geometry/line.hpp"
 #include "base/geometry/triangle.hpp"
 #include "base/log.hpp"
 #include "managers/resourcemanagerpool.hpp"
@@ -950,6 +952,24 @@ void Match::SetCameraParams(float zoom, float height, float fov, float angleFact
   cameraUserAngleFactor = angleFactor;
 }
 
+bool Match::GetRtsMoveDirection(const PlayerBase* player, Vector3& direction) {
+  if (!player || !rtsCameraEnabled.load() || rtsMovingPlayerId != player->GetID())
+    return false;
+  Vector3 delta = rtsMovingTarget - player->GetPosition();
+  delta.coords[2] = 0.0f;
+  if (delta.GetLength() < 0.8f) {
+    rtsMovingPlayerId = -1;
+    return false;
+  }
+  direction = delta.GetNormalized(Vector3(1.0f, 0.0f, 0.0f));
+  return true;
+}
+
+void Match::CancelRtsMoveOrder(const PlayerBase* player) {
+  if (player && player->GetID() == rtsMovingPlayerId)
+    rtsMovingPlayerId = -1;
+}
+
 void Match::UpdateIngameCamera() {
   // F8 switches between the existing broadcast camera and an overhead tactical view.
   auto& input = UserEventManager::GetInstance();
@@ -975,7 +995,7 @@ void Match::UpdateIngameCamera() {
     const bool mouseKnown = input.GetMousePosition(mouseX, mouseY);
     int screenW = 0, screenH = 0, bpp = 0;
     GetScene2D()->GetContextSize(screenW, screenH, bpp);
-    const float panStep = 0.15f * (rtsCameraHeight / 95.0f);
+    const float panStep = 0.75f * (rtsCameraHeight / 95.0f);
     const int edge = 25;
     if (mouseKnown && screenW > 0 && screenH > 0 &&
         mouseX >= 0 && mouseY >= 0 && mouseX < screenW && mouseY < screenH) {
@@ -994,7 +1014,7 @@ void Match::UpdateIngameCamera() {
     const bool middleDown = input.GetMouseButtonState(SDL_BUTTON_MIDDLE);
     if (middleDown && mouseKnown) {
       if (rtsMiddleHeld) {
-        const float worldUnitsPerPixel = rtsCameraHeight * 0.005f;
+        const float worldUnitsPerPixel = rtsCameraHeight * 0.012f;
         rtsCameraCenter.coords[0] -= (mouseX - rtsPreviousMouseX) * worldUnitsPerPixel;
         rtsCameraCenter.coords[1] += (mouseY - rtsPreviousMouseY) * worldUnitsPerPixel;
       }
@@ -1004,7 +1024,7 @@ void Match::UpdateIngameCamera() {
     rtsMiddleHeld = middleDown && mouseKnown;
 
     const int scroll = input.ConsumeMouseWheelY();
-    rtsCameraHeight -= scroll * 7.0f;
+    rtsCameraHeight -= scroll * 11.0f;
     if (input.GetKeyboardState(SDLK_EQUALS) || input.GetKeyboardState(SDLK_KP_PLUS))
       rtsCameraHeight -= 0.4f;
     if (input.GetKeyboardState(SDLK_MINUS) || input.GetKeyboardState(SDLK_KP_MINUS))
@@ -1211,6 +1231,63 @@ void Match::Process() {
     }
 
     // obvious
+
+    // Render-thread player picking is transferred here before the teams
+    // process, so the real HumanController is assigned to the clicked player.
+    if (rtsCameraEnabled.load()) {
+      int keyboardTeam = -1;
+      HumanGamer* keyboardGamer = nullptr;
+      for (int teamID = 0; teamID < 2; ++teamID) {
+        for (HumanGamer* gamer : teams[teamID]->GetHumanGamers()) {
+          if (gamer && gamer->GetHIDevice() &&
+              gamer->GetHIDevice()->GetDeviceType() == e_HIDeviceType_Keyboard) {
+            keyboardTeam = teamID;
+            keyboardGamer = gamer;
+            break;
+          }
+        }
+        if (keyboardGamer)
+          break;
+      }
+      // Quick Match may start CPU versus CPU. Make the home team keyboard-
+      // controllable in RTS mode instead of creating a marker-only selection.
+      if (!keyboardGamer) {
+        for (IHIDevice* device : controllers) {
+          if (device && device->GetDeviceType() == e_HIDeviceType_Keyboard) {
+            teams[0]->AddHumanGamer(device, e_PlayerColor_Green);
+            keyboardTeam = 0;
+            auto gamers = teams[0]->GetHumanGamers();
+            keyboardGamer = gamers.back();
+            break;
+          }
+        }
+      }
+      rtsKeyboardTeamId.store(keyboardTeam);
+      const int requestedID = rtsRequestedPlayerId.exchange(-1);
+      if (keyboardGamer && requestedID >= 0) {
+        Player* requested = teams[keyboardTeam]->GetPlayer(requestedID);
+        if (requested && requested->IsActive() &&
+            keyboardGamer->GetLockedPlayerID() == -1) {
+          keyboardGamer->SetSelectedPlayerID(requestedID);
+          rtsMovingPlayerId = -1;  // stop the old player's movement order
+        }
+      }
+      {
+        std::lock_guard<std::mutex> lock(rtsOrderMutex);
+        if (rtsPendingOrder) {
+          if (keyboardGamer && rtsPendingOrderPlayerId >= 0 &&
+              keyboardGamer->GetSelectedPlayerID() == rtsPendingOrderPlayerId) {
+            rtsMovingPlayerId = rtsPendingOrderPlayerId;
+            rtsMovingTarget = rtsPendingOrderTarget;
+          }
+          rtsPendingOrder = false;
+        }
+      }
+    } else {
+      rtsKeyboardTeamId.store(-1);
+      rtsMovingPlayerId = -1;
+      rtsRequestedPlayerId.store(-1);
+    }
 
     teams[0]->UpdateSwitch();
     teams[1]->UpdateSwitch();
@@ -1598,56 +1675,162 @@ void Match::Put() {
     ProcessReplayMessages();
   }
 
-  // Mouse picking runs on the graphics/Put thread, where the real camera and
-  // each player's rendered position are available together. No AI controller is
-  // changed here: selecting a player only updates the UI marker.
-  if (rtsCameraEnabled && !pause) {
-    const bool leftDown = UserEventManager::GetInstance().GetMouseButtonState(SDL_BUTTON_LEFT);
-    int mouseX = 0, mouseY = 0;
-    const bool mouseKnown = UserEventManager::GetInstance().GetMousePosition(mouseX, mouseY);
-    std::vector<Player*> homePlayers;
-    GetActiveTeamPlayers(0, homePlayers);
+  // Picking and screen projection must use the rendered camera on the graphics
+  // thread; a request is atomically transferred to Match::Process() where the
+  // game's HumanGamer can switch its actual controlled player.
+  auto& userInput = UserEventManager::GetInstance();
+  int mouseX = 0, mouseY = 0;
+  const bool mouseKnown = userInput.GetMousePosition(mouseX, mouseY);
+  const bool rtsActive = rtsCameraEnabled.load() && !pause;
+
+  // The large black box in RTS mode was the broadcast-game radar/minimap.
+  // Keep it available in the standard camera, but hide it during RTS play.
+  if (rtsActive && radar && !rtsRadarHidden) {
+    rtsRadarWasVisible = radar->IsVisible();
+    radar->Hide();
+    rtsRadarHidden = true;
+  } else if (!rtsActive && radar && rtsRadarHidden) {
+    if (rtsRadarWasVisible && !pause)
+      radar->Show();
+    rtsRadarHidden = false;
+  }
+
+  // The debug overlay is transparent except while drawing an active marquee.
+  auto clearMarquee = [&]() {
+    if (rtsDragOverlayDrawn && GetDebugOverlay()) {
+      const Vector3 overlaySize = GetDebugOverlay()->GetSize();
+      const int width = static_cast<int>(overlaySize.coords[0]);
+      const int height = static_cast<int>(overlaySize.coords[1]);
+      GetDebugOverlay()->DrawRectangle(0, 0, width, height,
+                                       Vector3(0, 0, 0), 0);
+      GetDebugOverlay()->OnChange();
+      rtsDragOverlayDrawn = false;
+    }
+  };
+  auto projectPixel = [&](const Vector3& position, int& px, int& py) {
+    const Vector3 projected = GetProjectedCoord(position, camera);
+    int w = 0, height = 0;
+    GetMenuTask()->GetWindowManager()->GetCoordinates(
+        projected.coords[0], projected.coords[1], 0, 0, px, py, w, height);
+  };
+
+  if (rtsActive) {
+    const bool leftDown = userInput.GetMouseButtonState(SDL_BUTTON_LEFT);
+    const bool rightDown = userInput.GetMouseButtonState(SDL_BUTTON_RIGHT);
+    const int selectedTeam = rtsKeyboardTeamId.load();
+    std::vector<Player*> selectablePlayers;
+    if (selectedTeam == 0 || selectedTeam == 1)
+      GetActiveTeamPlayers(selectedTeam, selectablePlayers);
+
     if (leftDown && !rtsLeftHeld && mouseKnown) {
-      int closestId = -1;
-      float closestDistanceSquared = 34.0f * 34.0f;
-      for (Player* player : homePlayers) {
+      rtsLeftStartX = mouseX;
+      rtsLeftStartY = mouseY;
+    }
+    const bool dragging = leftDown && mouseKnown &&
+        (abs(mouseX - rtsLeftStartX) > 9 || abs(mouseY - rtsLeftStartY) > 9);
+    if (dragging && GetDebugOverlay()) {
+      const Vector3 overlaySize = GetDebugOverlay()->GetSize();
+      const int screenW = static_cast<int>(overlaySize.coords[0]);
+      const int screenH = static_cast<int>(overlaySize.coords[1]);
+      const int left = clamp(std::min(rtsLeftStartX, mouseX), 0, screenW - 1);
+      const int top = clamp(std::min(rtsLeftStartY, mouseY), 0, screenH - 1);
+      const int right = clamp(std::max(rtsLeftStartX, mouseX), 0, screenW - 1);
+      const int bottom = clamp(std::max(rtsLeftStartY, mouseY), 0, screenH - 1);
+      GetDebugOverlay()->DrawRectangle(0, 0, screenW, screenH,
+                                       Vector3(0, 0, 0), 0);
+      const Vector3 green(80, 250, 120);
+      auto drawEdge = [&](int x1, int y1, int x2, int y2) {
+        Line edge;
+        edge.SetVertex(0, Vector3(x1, y1, 0));
+        edge.SetVertex(1, Vector3(x2, y2, 0));
+        GetDebugOverlay()->DrawLine(edge, green, 235);
+      };
+      drawEdge(left, top, right, top);
+      drawEdge(right, top, right, bottom);
+      drawEdge(right, bottom, left, bottom);
+      drawEdge(left, bottom, left, top);
+      GetDebugOverlay()->OnChange();
+      rtsDragOverlayDrawn = true;
+    } else if (rtsDragOverlayDrawn) {
+      clearMarquee();
+    }
+
+    if (!leftDown && rtsLeftHeld && mouseKnown && !selectablePlayers.empty()) {
+      const bool box = abs(mouseX - rtsLeftStartX) > 9 ||
+                       abs(mouseY - rtsLeftStartY) > 9;
+      const int left = std::min(mouseX, rtsLeftStartX);
+      const int right = std::max(mouseX, rtsLeftStartX);
+      const int top = std::min(mouseY, rtsLeftStartY);
+      const int bottom = std::max(mouseY, rtsLeftStartY);
+      const float centerX = box ? (left + right) * 0.5f : static_cast<float>(mouseX);
+      const float centerY = box ? (top + bottom) * 0.5f : static_cast<float>(mouseY);
+      float bestDistanceSquared = box ? 1.0e12f : 34.0f * 34.0f;
+      int nearestId = -1;
+      for (Player* player : selectablePlayers) {
         const Vector3 projected = GetProjectedCoord(
             player->GetGeomPosition() + Vector3(0.0f, 0.0f, 1.0f), camera);
-        if (projected.coords[0] < 0.0f || projected.coords[0] > 100.0f ||
-            projected.coords[1] < 0.0f || projected.coords[1] > 100.0f)
+        if (projected.coords[0] < 0 || projected.coords[0] > 100 ||
+            projected.coords[1] < 0 || projected.coords[1] > 100)
           continue;
-        int px = 0, py = 0, width = 0, height = 0;
-        GetMenuTask()->GetWindowManager()->GetCoordinates(
-            projected.coords[0], projected.coords[1], 0, 0,
-            px, py, width, height);
-        const float dx = static_cast<float>(px - mouseX);
-        const float dy = static_cast<float>(py - mouseY);
+        int px = 0, py = 0;
+        projectPixel(player->GetGeomPosition() + Vector3(0, 0, 1), px, py);
+        if (box && (px < left || px > right || py < top || py > bottom))
+          continue;
+        const float dx = px - centerX, dy = py - centerY;
         const float distanceSquared = dx * dx + dy * dy;
-        if (distanceSquared < closestDistanceSquared) {
-          closestDistanceSquared = distanceSquared;
-          closestId = player->GetID();
+        if (distanceSquared < bestDistanceSquared) {
+          bestDistanceSquared = distanceSquared;
+          nearestId = player->GetID();
         }
       }
-      rtsSelectedPlayerId = closestId;  // clicking empty grass clears the selection
-      if (closestId >= 0)
-        SpamMessage("Player selected (left-click another player to switch)", 2000);
+      if (nearestId >= 0) {
+        rtsSelectedPlayerId = nearestId;
+        rtsRequestedPlayerId.store(nearestId);
+        SpamMessage("Selected player is now controlled: arrows to move / right-click to run", 3000);
+      }
+      // A click on empty grass keeps the current selection and movement control.
     }
     rtsLeftHeld = leftDown;
 
-    Player* selected = nullptr;
-    for (Player* player : homePlayers) {
+    // Right-click issues an actual move-to-point order, using the existing
+    // HumanController path and its running / dribbling animations.
+    if (rightDown && !rtsRightHeld && mouseKnown && rtsSelectedPlayerId >= 0) {
+      int originX = 0, originY = 0, x10 = 0, unusedY = 0, unusedX = 0, y10 = 0;
+      projectPixel(Vector3(0, 0, 0), originX, originY);
+      projectPixel(Vector3(10, 0, 0), x10, unusedY);
+      projectPixel(Vector3(0, 10, 0), unusedX, y10);
+      const float xscale = (x10 - originX) / 10.0f;
+      const float yscale = (y10 - originY) / 10.0f;
+      if (std::fabs(xscale) > 0.01f && std::fabs(yscale) > 0.01f) {
+        Vector3 destination((mouseX - originX) / xscale,
+                            (mouseY - originY) / yscale, 0.0f);
+        destination.coords[0] = clamp(destination.coords[0], -pitchHalfW, pitchHalfW);
+        destination.coords[1] = clamp(destination.coords[1], -pitchHalfH, pitchHalfH);
+        std::lock_guard<std::mutex> lock(rtsOrderMutex);
+        rtsPendingOrderPlayerId = rtsSelectedPlayerId;
+        rtsPendingOrderTarget = destination;
+        rtsPendingOrder = true;
+      }
+    }
+    rtsRightHeld = rightDown;
+
+    Player* selectedPlayer = nullptr;
+    for (Player* player : selectablePlayers) {
       if (player->GetID() == rtsSelectedPlayerId) {
-        selected = player;
+        selectedPlayer = player;
         break;
       }
     }
-    if (selected)
-      SetLargeDebugCircle(selected->GetGeomPosition() + Vector3(0.0f, 0.0f, 0.08f));
+    if (selectedPlayer)
+      SetLargeDebugCircle(selectedPlayer->GetGeomPosition() + Vector3(0, 0, 0.08f));
     else
-      SetLargeDebugCircle(Vector3(0.0f, 0.0f, -10.0f));
+      SetLargeDebugCircle(Vector3(0, 0, -10));
   } else {
     rtsLeftHeld = false;
-    SetLargeDebugCircle(Vector3(0.0f, 0.0f, -10.0f));
+    rtsRightHeld = false;
+    rtsSelectedPlayerId = -1;
+    clearMarquee();
+    SetLargeDebugCircle(Vector3(0, 0, -10));
   }
 
   GetDynamicNode()->RecursiveUpdateSpatialData(e_SpatialDataType_Both);

@@ -596,8 +596,9 @@ int main(int argc, const char** argv) {
 
   if (SuperDebug())
     InitDebugImage();
-  if (GetDebugMode() == e_DebugMode_AI)
-    InitDebugOverlay();
+  // A transparent 2D overlay supports the tactical drag-selection marquee.
+  // It is also used by AI debug visuals when debug mode is enabled.
+  InitDebugOverlay();
 
   ThreadHudThread* threadHudThread = nullptr;
   if (!IsReleaseVersion() && 1 == 2) {
@@ -774,8 +775,7 @@ int main(int argc, const char** argv) {
 
   if (SuperDebug())
     scene2D->DeleteObject(debugImage);
-  if (GetDebugMode() == e_DebugMode_AI)
-    scene2D->DeleteObject(debugOverlay);
+  scene2D->DeleteObject(debugOverlay);
 
   gameTask.reset();
   menuTask.reset();

@@ -317,6 +317,12 @@ void Team::HumanGamersSelectAnyone() {
 }
 
 void Team::SelectPlayer(Player* player) {
+  // In tactical mode the human chooses their player with the mouse; the
+  // AI may still nominate a possession player but cannot steal human control.
+  if (match->IsRtsKeyboardTeam(id)) {
+    designatedTeamPossessionPlayer = player;
+    return;
+  }
   // printf("trying to switch to %s\n", player->GetPlayerData()->GetLastName().c_str());
   // A gamer locked to one player (Player-mode careers) is never switched.
   if (AllowsAutomaticPlayerSelection(ReadConfiguredPlayerSwitchMode(*GetConfiguration())) &&
@@ -408,7 +414,9 @@ void Team::Process() {
             !(selectedPlayerID == GetBestPossessionPlayerID() &&
               selectedPlayerID == designatedTeamPossessionPlayer->GetID()) ||
             GetTeamPossessionAmount() < 1.0f;
-        if (humanGamers.at(i)->GetHIDevice()->GetButton(e_ButtonFunction_Switch) &&
+        if (!(match->IsRtsKeyboardTeam(id) &&
+              humanGamers.at(i)->GetHIDevice()->GetDeviceType() == e_HIDeviceType_Keyboard) &&
+            humanGamers.at(i)->GetHIDevice()->GetButton(e_ButtonFunction_Switch) &&
             !humanGamers.at(i)->GetHIDevice()->GetPreviousButtonState(e_ButtonFunction_Switch) &&
             ShouldSwitchOnPress(
                 fullyManualSwitching ? PlayerSwitchMode::FullyManual : PlayerSwitchMode::Assisted,
@@ -443,7 +451,7 @@ void Team::Process() {
         }
       }
 
-    } else if (!fullyManualSwitching) {
+    } else if (!fullyManualSwitching && !match->IsRtsKeyboardTeam(id)) {
       // make sure all human gamers don't have a player selected
 
       for (unsigned int i = 0; i < humanGamers.size(); i++) {
@@ -561,6 +569,9 @@ void Team::UpdatePossessionStats() {
 }
 
 void Team::UpdateSwitch() {
+  // Mouse-picked players must not be auto-switched when the ball changes hands.
+  if (match->IsRtsKeyboardTeam(id))
+    return;
   // lose turn on ball possession
 
   if (match->IsInPlay() && humanGamers.size() > 1) {

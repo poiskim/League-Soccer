@@ -1,52 +1,61 @@
-# RTS mouse camera and player selection prototype
+# RTS mouse camera and actual player control
 
-This is an **opt-in** mouse-driven camera/selection layer above the existing match.
-The 22-player simulation, AI, football physics, keyboard controls, and normal
-broadcast camera remain intact.
+The optional F8 tactical mode leaves the original soccer simulation and default
+broadcast camera intact. This revision connects player selection to the engine's
+**real HumanGamer controller**, so movement and ball animations still run through
+the existing football game code.
 
-## Controls during a live match
+## Mouse and keyboard
 
-1. Press **F8** once to enable the tactical overhead camera. F8 again returns
-   to the original broadcast camera.
-2. Move the mouse pointer to any **screen edge** to pan across the pitch.
-3. Turn the **mouse wheel** to zoom in or out.
-4. Hold the **middle mouse button** and drag to move the camera directly.
-5. **Left-click a player on the home team** to select that player.
-   A **yellow ring at the player's feet** follows the selected player.
-   Click empty grass to clear the selection.
-6. **I/J/K/L** panning and **+/-** zoom still work as keyboard fallbacks.
+- **F8** — enter/leave the RTS tactical camera.
+- **Mouse at screen edge** — pan (roughly 5x faster than the first prototype).
+- **Middle mouse drag** — fast camera pan.
+- **Mouse wheel** — zoom.
+- **Left click on one of your team's players** — select and **control** the player.
+  A yellow ring follows the player.
+- **Left-click and drag** — visible green marquee box. On release, the
+  closest eligible player to the rectangle's center becomes selected/controlled.
+  This is **single-player box selection** for now, not multi-selection.
+- **Right-click a pitch location** — selected player moves toward that location,
+  using the existing HumanController movement/ball interactions.
+- **Arrow keys** — manually move the selected player and cancel any queued
+  right-click run order.
+- **I/J/K/L** — camera pan fallback; **+/-** — zoom fallback.
+- Click empty grass — retain the active player, so control never silently
+  switches to an invisible player.
 
-## Important current limitations
+The old broadcast radar HUD/minimap is automatically hidden while RTS mode
+is active and restored with the normal camera. The game still runs its original
+opponent and teammate AI.
 
-- Single-player selection only; box selection and right-click movement orders
-  have **not** been implemented yet.
-- Only the **home team (team 0)** can be selected in this prototype.
-- Selection changes the marker, not who is controlled by the match AI.
-- The camera is a straight-down **perspective** view, not orthographic yet.
-- The selection ring uses the project's pre-existing yellow large debug-circle
-  geometry (no new binary assets).
-- The screen-edge region is 25 px; wheel zoom has height bounds to prevent
-  clipping. Selection uses rendered player positions with a 34 px hit radius.
+## Limits / known differences from the final RTS design
 
-## Windows testing
+- One player selected at a time (multi-select to follow).
+- Only the team assigned to the keyboard is selectable. If neither side is
+  human-controlled, entering RTS mode assigns the keyboard to the home team.
+- The camera uses overhead perspective, not orthographic projection.
+- Right-click orders are basic straight-line movement without pathfinding or
+  tactical formation logic; they stop when the selected player reaches the
+  target or receives a manual arrow-key direction.
+- Dragging **with the left button** draws the selection rectangle; dragging
+  **with the middle button** moves the camera.
+- Overlay and control changes have not been locally verified with Windows/MSVC.
 
-From a terminal opened at the repository root:
+## Windows test
+
+Merge the PR, then from the repository directory:
 
 ```cmd
+git pull origin master
 build.bat
 run.bat
 ```
 
-During a match: press F8, move the pointer to a screen edge, scroll the wheel,
-middle-drag, then left-click a home player. Check that the ring follows the
-player and disappears when empty grass is clicked. Press F8 again to restore
-the normal broadcast view.
+In a match press F8, left-click a player and verify they respond to arrow keys.
+Then right-click open grass to see the player run there. Left-drag a rectangle
+over another player; release and check the yellow ring moves to the new player
+and manual control switches with it. Move the mouse to the screen edge and
+spin the wheel to test the faster camera. Press F8 again and check the broadcast
+radar returns.
 
-**Windows C++ build and in-game rendering have not been tested by the assistant.**
-If you get a compiler error, share the first error and surrounding lines.
-
-## Next work
-
-- Drag rectangle and multi-player selection.
-- Right-click movement commands integrated with the existing controller/AI path.
-- Better selection UI and camera angle/orientation options.
+Share the **first compiler error** if the build fails.
