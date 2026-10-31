@@ -950,6 +950,24 @@ void Match::SetCameraParams(float zoom, float height, float fov, float angleFact
   cameraUserAngleFactor = angleFactor;
 }
 
+bool Match::GetRtsMoveDirection(const PlayerBase* player, Vector3& direction) {
+  if (!player || !rtsCameraEnabled.load() || rtsMovingPlayerId != player->GetID())
+    return false;
+  Vector3 delta = rtsMovingTarget - player->GetPosition();
+  delta.coords[2] = 0.0f;
+  if (delta.GetLength() < 0.8f) {
+    rtsMovingPlayerId = -1;
+    return false;
+  }
+  direction = delta.GetNormalized(Vector3(1.0f, 0.0f, 0.0f));
+  return true;
+}
+
+void Match::CancelRtsMoveOrder(const PlayerBase* player) {
+  if (player && player->GetID() == rtsMovingPlayerId)
+    rtsMovingPlayerId = -1;
+}
+
 void Match::UpdateIngameCamera() {
   // F8 switches between the existing broadcast camera and an overhead tactical view.
   auto& input = UserEventManager::GetInstance();
@@ -975,7 +993,7 @@ void Match::UpdateIngameCamera() {
     const bool mouseKnown = input.GetMousePosition(mouseX, mouseY);
     int screenW = 0, screenH = 0, bpp = 0;
     GetScene2D()->GetContextSize(screenW, screenH, bpp);
-    const float panStep = 0.15f * (rtsCameraHeight / 95.0f);
+    const float panStep = 0.75f * (rtsCameraHeight / 95.0f);
     const int edge = 25;
     if (mouseKnown && screenW > 0 && screenH > 0 &&
         mouseX >= 0 && mouseY >= 0 && mouseX < screenW && mouseY < screenH) {
@@ -994,7 +1012,7 @@ void Match::UpdateIngameCamera() {
     const bool middleDown = input.GetMouseButtonState(SDL_BUTTON_MIDDLE);
     if (middleDown && mouseKnown) {
       if (rtsMiddleHeld) {
-        const float worldUnitsPerPixel = rtsCameraHeight * 0.005f;
+        const float worldUnitsPerPixel = rtsCameraHeight * 0.012f;
         rtsCameraCenter.coords[0] -= (mouseX - rtsPreviousMouseX) * worldUnitsPerPixel;
         rtsCameraCenter.coords[1] += (mouseY - rtsPreviousMouseY) * worldUnitsPerPixel;
       }
@@ -1004,7 +1022,7 @@ void Match::UpdateIngameCamera() {
     rtsMiddleHeld = middleDown && mouseKnown;
 
     const int scroll = input.ConsumeMouseWheelY();
-    rtsCameraHeight -= scroll * 7.0f;
+    rtsCameraHeight -= scroll * 11.0f;
     if (input.GetKeyboardState(SDLK_EQUALS) || input.GetKeyboardState(SDLK_KP_PLUS))
       rtsCameraHeight -= 0.4f;
     if (input.GetKeyboardState(SDLK_MINUS) || input.GetKeyboardState(SDLK_KP_MINUS))
@@ -1211,6 +1229,63 @@ void Match::Process() {
     }
 
     // obvious
+
+    // Render-thread player picking is transferred here before the teams
+    // process, so the real HumanController is assigned to the clicked player.
+    if (rtsCameraEnabled.load()) {
+      int keyboardTeam = -1;
+      HumanGamer* keyboardGamer = nullptr;
+      for (int teamID = 0; teamID < 2; ++teamID) {
+        for (HumanGamer* gamer : teams[teamID]->GetHumanGamers()) {
+          if (gamer && gamer->GetHIDevice() &&
+              gamer->GetHIDevice()->GetDeviceType() == e_HIDeviceType_Keyboard) {
+            keyboardTeam = teamID;
+            keyboardGamer = gamer;
+            break;
+          }
+        }
+        if (keyboardGamer)
+          break;
+      }
+      // Quick Match may start CPU versus CPU. Make the home team keyboard-
+      // controllable in RTS mode instead of creating a marker-only selection.
+      if (!keyboardGamer) {
+        for (IHIDevice* device : controllers) {
+          if (device && device->GetDeviceType() == e_HIDeviceType_Keyboard) {
+            teams[0]->AddHumanGamer(device, e_PlayerColor_Green);
+            keyboardTeam = 0;
+            auto gamers = teams[0]->GetHumanGamers();
+            keyboardGamer = gamers.back();
+            break;
+          }
+        }
+      }
+      rtsKeyboardTeamId.store(keyboardTeam);
+      const int requestedID = rtsRequestedPlayerId.exchange(-1);
+      if (keyboardGamer && requestedID >= 0) {
+        Player* requested = teams[keyboardTeam]->GetPlayer(requestedID);
+        if (requested && requested->IsActive() &&
+            keyboardGamer->GetLockedPlayerID() == -1) {
+          keyboardGamer->SetSelectedPlayerID(requestedID);
+          rtsMovingPlayerId = -1;  // stop the old player's movement order
+        }
+      }
+      {
+        std::lock_guard<std::mutex> lock(rtsOrderMutex);
+        if (rtsPendingOrder) {
+          if (keyboardGamer && rtsPendingOrderPlayerId >= 0 &&
+              keyboardGamer->GetSelectedPlayerID() == rtsPendingOrderPlayerId) {
+            rtsMovingPlayerId = rtsPendingOrderPlayerId;
+            rtsMovingTarget = rtsPendingOrderTarget;
+          }
+          rtsPendingOrder = false;
+        }
+      }
+    } else {
+      rtsKeyboardTeamId.store(-1);
+      rtsMovingPlayerId = -1;
+      rtsRequestedPlayerId.store(-1);
+    }
 
     teams[0]->UpdateSwitch();
     teams[1]->UpdateSwitch();
