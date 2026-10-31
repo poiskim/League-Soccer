@@ -950,40 +950,70 @@ void Match::SetCameraParams(float zoom, float height, float fov, float angleFact
 }
 
 void Match::UpdateIngameCamera() {
-  // Experimental RTS-style camera. Toggle with F8; the original camera remains the default.
+  // F8 switches between the existing broadcast camera and an overhead tactical view.
   const auto& input = UserEventManager::GetInstance();
   const bool toggleDown = input.GetKeyboardState(SDLK_F8);
   if (toggleDown && !rtsCameraToggleHeld) {
     rtsCameraEnabled = !rtsCameraEnabled;
     if (rtsCameraEnabled) {
       rtsCameraCenter = ball->Predict(0).Get2D();
-      SpamMessage("RTS camera ON: IJKL pan, +/- zoom, F8 toggle", 3500);
+      rtsMiddleHeld = false;
+      input.ConsumeMouseWheelY();  // discard wheel input accumulated in the menus
+      SpamMessage("RTS: edge pan / wheel zoom / middle-drag / left-click select", 4500);
     } else {
+      rtsMiddleHeld = false;
       SpamMessage("RTS camera OFF: normal broadcast view", 2500);
-      camPos.clear();  // discard old follow-camera smoothing samples
+      camPos.clear();
     }
   }
   rtsCameraToggleHeld = toggleDown;
 
   if (rtsCameraEnabled) {
-    // Movement is deliberately independent of the ball and selected player.
+    // Follow the mouse at screen edges, independently of ball and player motion.
+    int mouseX = 0, mouseY = 0;
+    const bool mouseKnown = input.GetMousePosition(mouseX, mouseY);
+    int screenW = 0, screenH = 0, bpp = 0;
+    GetScene2D()->GetContextSize(screenW, screenH, bpp);
     const float panStep = 0.15f * (rtsCameraHeight / 95.0f);
+    const int edge = 25;
+    if (mouseKnown && screenW > 0 && screenH > 0 &&
+        mouseX >= 0 && mouseY >= 0 && mouseX < screenW && mouseY < screenH) {
+      if (mouseX < edge) rtsCameraCenter.coords[0] -= panStep;
+      if (mouseX >= screenW - edge) rtsCameraCenter.coords[0] += panStep;
+      if (mouseY < edge) rtsCameraCenter.coords[1] += panStep;
+      if (mouseY >= screenH - edge) rtsCameraCenter.coords[1] -= panStep;
+    }
+    // Keep keyboard camera movement for accessibility and testing.
     if (input.GetKeyboardState(SDLK_j)) rtsCameraCenter.coords[0] -= panStep;
     if (input.GetKeyboardState(SDLK_l)) rtsCameraCenter.coords[0] += panStep;
     if (input.GetKeyboardState(SDLK_i)) rtsCameraCenter.coords[1] += panStep;
     if (input.GetKeyboardState(SDLK_k)) rtsCameraCenter.coords[1] -= panStep;
-    rtsCameraCenter.coords[0] = clamp(rtsCameraCenter.coords[0], -pitchHalfW, pitchHalfW);
-    rtsCameraCenter.coords[1] = clamp(rtsCameraCenter.coords[1], -pitchHalfH, pitchHalfH);
-    rtsCameraCenter.coords[2] = 0.0f;
 
+    // Holding the middle mouse button grabs and drags the pitch.
+    const bool middleDown = input.GetMouseButtonState(SDL_BUTTON_MIDDLE);
+    if (middleDown && mouseKnown) {
+      if (rtsMiddleHeld) {
+        const float worldUnitsPerPixel = rtsCameraHeight * 0.005f;
+        rtsCameraCenter.coords[0] -= (mouseX - rtsPreviousMouseX) * worldUnitsPerPixel;
+        rtsCameraCenter.coords[1] += (mouseY - rtsPreviousMouseY) * worldUnitsPerPixel;
+      }
+      rtsPreviousMouseX = mouseX;
+      rtsPreviousMouseY = mouseY;
+    }
+    rtsMiddleHeld = middleDown && mouseKnown;
+
+    const int scroll = input.ConsumeMouseWheelY();
+    rtsCameraHeight -= scroll * 7.0f;
     if (input.GetKeyboardState(SDLK_EQUALS) || input.GetKeyboardState(SDLK_KP_PLUS))
       rtsCameraHeight -= 0.4f;
     if (input.GetKeyboardState(SDLK_MINUS) || input.GetKeyboardState(SDLK_KP_MINUS))
       rtsCameraHeight += 0.4f;
     rtsCameraHeight = clamp(rtsCameraHeight, 55.0f, 180.0f);
+    rtsCameraCenter.coords[0] = clamp(rtsCameraCenter.coords[0], -pitchHalfW, pitchHalfW);
+    rtsCameraCenter.coords[1] = clamp(rtsCameraCenter.coords[1], -pitchHalfH, pitchHalfH);
+    rtsCameraCenter.coords[2] = 0.0f;
 
-    // Reuse the working birds-eye orientation already supported by the match renderer.
-    // This is a perspective overhead prototype, not an orthographic projection yet.
+    // Straight-down perspective view; the normal match camera remains unchanged.
     cameraOrientation = QUATERNION_IDENTITY;
     cameraNodeOrientation = QUATERNION_IDENTITY;
     cameraNodePosition = rtsCameraCenter + Vector3(0.0f, 0.0f, rtsCameraHeight);
@@ -1565,6 +1595,58 @@ void Match::Put() {
 
   } else {  // pause
     ProcessReplayMessages();
+  }
+
+  // Mouse picking runs on the graphics/Put thread, where the real camera and
+  // each player's rendered position are available together. No AI controller is
+  // changed here: selecting a player only updates the UI marker.
+  if (rtsCameraEnabled && !pause) {
+    const bool leftDown = UserEventManager::GetInstance().GetMouseButtonState(SDL_BUTTON_LEFT);
+    int mouseX = 0, mouseY = 0;
+    const bool mouseKnown = UserEventManager::GetInstance().GetMousePosition(mouseX, mouseY);
+    std::vector<Player*> homePlayers;
+    GetActiveTeamPlayers(0, homePlayers);
+    if (leftDown && !rtsLeftHeld && mouseKnown) {
+      int closestId = -1;
+      float closestDistanceSquared = 34.0f * 34.0f;
+      for (Player* player : homePlayers) {
+        const Vector3 projected = GetProjectedCoord(
+            player->GetGeomPosition() + Vector3(0.0f, 0.0f, 1.0f), camera);
+        if (projected.coords[0] < 0.0f || projected.coords[0] > 100.0f ||
+            projected.coords[1] < 0.0f || projected.coords[1] > 100.0f)
+          continue;
+        int px = 0, py = 0, width = 0, height = 0;
+        GetMenuTask()->GetWindowManager()->GetCoordinates(
+            projected.coords[0], projected.coords[1], 0, 0,
+            px, py, width, height);
+        const float dx = static_cast<float>(px - mouseX);
+        const float dy = static_cast<float>(py - mouseY);
+        const float distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared < closestDistanceSquared) {
+          closestDistanceSquared = distanceSquared;
+          closestId = player->GetID();
+        }
+      }
+      rtsSelectedPlayerId = closestId;  // clicking empty grass clears the selection
+      if (closestId >= 0)
+        SpamMessage("Player selected (left-click another player to switch)", 2000);
+    }
+    rtsLeftHeld = leftDown;
+
+    Player* selected = nullptr;
+    for (Player* player : homePlayers) {
+      if (player->GetID() == rtsSelectedPlayerId) {
+        selected = player;
+        break;
+      }
+    }
+    if (selected)
+      SetLargeDebugCircle(selected->GetGeomPosition() + Vector3(0.0f, 0.0f, 0.08f));
+    else
+      SetLargeDebugCircle(Vector3(0.0f, 0.0f, -10.0f));
+  } else {
+    rtsLeftHeld = false;
+    SetLargeDebugCircle(Vector3(0.0f, 0.0f, -10.0f));
   }
 
   GetDynamicNode()->RecursiveUpdateSpatialData(e_SpatialDataType_Both);
