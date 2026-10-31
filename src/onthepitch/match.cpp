@@ -957,7 +957,7 @@ void Match::UpdateIngameCamera() {
     rtsCameraEnabled = !rtsCameraEnabled;
     if (rtsCameraEnabled) {
       rtsCameraCenter = ball->Predict(0).Get2D();
-      SpamMessage("RTS camera ON: arrows pan, +/- zoom, F8 toggle", 3500);
+      SpamMessage("RTS camera ON: IJKL pan, +/- zoom, F8 toggle", 3500);
     } else {
       SpamMessage("RTS camera OFF: normal broadcast view", 2500);
       camPos.clear();  // discard old follow-camera smoothing samples
@@ -968,10 +968,10 @@ void Match::UpdateIngameCamera() {
   if (rtsCameraEnabled) {
     // Movement is deliberately independent of the ball and selected player.
     const float panStep = 0.15f * (rtsCameraHeight / 95.0f);
-    if (input.GetKeyboardState(SDLK_LEFT)) rtsCameraCenter.coords[0] -= panStep;
-    if (input.GetKeyboardState(SDLK_RIGHT)) rtsCameraCenter.coords[0] += panStep;
-    if (input.GetKeyboardState(SDLK_UP)) rtsCameraCenter.coords[1] += panStep;
-    if (input.GetKeyboardState(SDLK_DOWN)) rtsCameraCenter.coords[1] -= panStep;
+    if (input.GetKeyboardState(SDLK_j)) rtsCameraCenter.coords[0] -= panStep;
+    if (input.GetKeyboardState(SDLK_l)) rtsCameraCenter.coords[0] += panStep;
+    if (input.GetKeyboardState(SDLK_i)) rtsCameraCenter.coords[1] += panStep;
+    if (input.GetKeyboardState(SDLK_k)) rtsCameraCenter.coords[1] -= panStep;
     rtsCameraCenter.coords[0] = clamp(rtsCameraCenter.coords[0], -pitchHalfW, pitchHalfW);
     rtsCameraCenter.coords[1] = clamp(rtsCameraCenter.coords[1], -pitchHalfH, pitchHalfH);
     rtsCameraCenter.coords[2] = 0.0f;
