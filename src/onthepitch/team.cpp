@@ -451,7 +451,7 @@ void Team::Process() {
         }
       }
 
-    } else if (!fullyManualSwitching) {
+    } else if (!fullyManualSwitching && !match->IsRtsKeyboardTeam(id)) {
       // make sure all human gamers don't have a player selected
 
       for (unsigned int i = 0; i < humanGamers.size(); i++) {
