@@ -1,61 +1,71 @@
-# RTS mouse camera and actual player control
+# Tactical RTS controls (mouse, Space quick focus)
 
-The optional F8 tactical mode leaves the original soccer simulation and default
-broadcast camera intact. This revision connects player selection to the engine's
-**real HumanGamer controller**, so movement and ball animations still run through
-the existing football game code.
+This mode builds on the original League-Soccer soccer simulation. It keeps the
+existing human-control path, football animations, ball physics and opposition AI.
 
-## Mouse and keyboard
+## Gameplay
 
-- **F8** — enter/leave the RTS tactical camera.
-- **Mouse at screen edge** — pan (roughly 5x faster than the first prototype).
-- **Middle mouse drag** — fast camera pan.
-- **Mouse wheel** — zoom.
-- **Left click on one of your team's players** — select and **control** the player.
-  A yellow ring follows the player.
-- **Left-click and drag** — visible green marquee box. On release, the
-  closest eligible player to the rectangle's center becomes selected/controlled.
-  This is **single-player box selection** for now, not multi-selection.
-- **Right-click a pitch location** — selected player moves toward that location,
-  using the existing HumanController movement/ball interactions.
-- **Arrow keys** — manually move the selected player and cancel any queued
-  right-click run order.
-- **I/J/K/L** — camera pan fallback; **+/-** — zoom fallback.
-- Click empty grass — retain the active player, so control never silently
-  switches to an invisible player.
+Enter a match and press **F8** to switch to the top-down tactical camera.
 
-The old broadcast radar HUD/minimap is automatically hidden while RTS mode
-is active and restored with the normal camera. The game still runs its original
-opponent and teammate AI.
+| Input | Effect |
+|---|---|
+| **Space** (press) | Select and control the nearest player **on your team** to the ball, whether attacking or defending; snap the camera to that player |
+| **Space** (hold) | Keep the camera centered on that newly selected player, like League of Legends; release to resume free panning |
+| **Left click** | Select a team player and attach the actual keyboard controller |
+| **Left drag** | Draw a green selection rectangle; select one player inside it when released (not multi-select yet) |
+| **Right click grass** | Run the selected player to the clicked point using the original player movement system |
+| **Arrow keys** | Directly move the selected player, overriding the current right-click move order |
+| **E** | Sprint (hold) |
+| **C** | Slower/controlled dribbling |
+| **S** | Short pass in attack; press in defense |
+| **W** | Through/long pass in attack; goalkeeper rush in defense |
+| **A** | Lofted pass in attack; sliding tackle in defense |
+| **D** | Shot in attack; team pressure in defense |
+| **Z** | Special modifier |
+| **F8** | Exit RTS mode and restore the broadcast camera |
+| **I/J/K/L** | Move the RTS camera (keyboard fallback) |
+| **Mouse at screen edges** | Fast camera pan |
+| **Middle drag** | Fast camera pan |
+| **Mouse wheel**, **+/-** | Zoom the RTS camera |
 
-## Limits / known differences from the final RTS design
+The exact pass target is still selected by the existing game logic using player
+movement/input direction, context and football AI. **Mouse-pointer-directed
+passing is not yet implemented.**
 
-- One player selected at a time (multi-select to follow).
-- Only the team assigned to the keyboard is selectable. If neither side is
-  human-controlled, entering RTS mode assigns the keyboard to the home team.
-- The camera uses overhead perspective, not orthographic projection.
-- Right-click orders are basic straight-line movement without pathfinding or
-  tactical formation logic; they stop when the selected player reaches the
-  target or receives a manual arrow-key direction.
-- Dragging **with the left button** draws the selection rectangle; dragging
-  **with the middle button** moves the camera.
-- Overlay and control changes have not been locally verified with Windows/MSVC.
+## Window handling and resolution
+
+- **RTS mode confines the mouse to the game window when it has focus.** It
+  prevents edge-panning from clicking the desktop or other applications.
+- **F8** releases confinement. **Alt+Tab** temporarily releases confinement so
+  you can work in another app. Quitting the match also releases it.
+- Resolution is not fixed. The project defaults to a **1280x720 window** if
+  the config is missing. In `football.config`, `context_x` and `context_y`
+  specify dimensions, while `context_fullscreen` enables fullscreen. When
+  changing these settings, quit the game first, then restart it.
+
+## Clear tactical pitch
+
+The original `media/textures/pitch/overlay.png` contains dark weathered
+patches in the baked pitch texture. Because these are distracting in a distant
+top-down view, the generator now leaves this decorative overlay off by default.
+To restore the original look, set `rts_clear_pitch_overlay=0` in
+`football.config` before launching the match. Pitch lines and gameplay
+physics are still generated as before.
 
 ## Windows test
 
-Merge the PR, then from the repository directory:
+After merging the pull request:
 
 ```cmd
+cd /d "C:\Users\c\Documents\League-Soccer"
 git pull origin master
 build.bat
 run.bat
 ```
 
-In a match press F8, left-click a player and verify they respond to arrow keys.
-Then right-click open grass to see the player run there. Left-drag a rectangle
-over another player; release and check the yellow ring moves to the new player
-and manual control switches with it. Move the mouse to the screen edge and
-spin the wheel to test the faster camera. Press F8 again and check the broadcast
-radar returns.
+In a match: F8, select a player with left-click, tap Space (the circle should
+jump to the nearest friendly player to the ball), hold Space to follow, release
+Space and move the camera freely, then test Alt+Tab and F8 confinement release.
 
-Share the **first compiler error** if the build fails.
+The Windows C++ build and in-game behavior require local testing. If MSVC
+reports an error, capture the **first compiler error**.
