@@ -1,33 +1,52 @@
-# Experimental RTS Camera (first prototype)
+# RTS mouse camera and player selection prototype
 
-This optional camera mode is a first step toward mouse-driven tactical soccer
-controls. It reuses the existing match renderer and does **not** replace the
-underlying 22-player simulation, controller system, or football physics.
+This is an **opt-in** mouse-driven camera/selection layer above the existing match.
+The 22-player simulation, AI, football physics, keyboard controls, and normal
+broadcast camera remain intact.
 
-## Controls (during a live match)
+## Controls during a live match
 
-- **F8**: toggle the overhead camera on/off.
-- **I / J / K / L**: pan up / left / down / right while the overhead view is on.
-- **= / numpad +**: zoom in.
-- **- / numpad -**: zoom out.
+1. Press **F8** once to enable the tactical overhead camera. F8 again returns
+   to the original broadcast camera.
+2. Move the mouse pointer to any **screen edge** to pan across the pitch.
+3. Turn the **mouse wheel** to zoom in or out.
+4. Hold the **middle mouse button** and drag to move the camera directly.
+5. **Left-click a player on the home team** to select that player.
+   A **yellow ring at the player's feet** follows the selected player.
+   Click empty grass to clear the selection.
+6. **I/J/K/L** panning and **+/-** zoom still work as keyboard fallbacks.
 
-The original match broadcast camera remains the default. IJKL intentionally
-avoid the game's existing arrow-key player movement controls. The view is
-perspective from straight above, **not yet true orthographic**.
+## Important current limitations
 
-## Windows test
+- Single-player selection only; box selection and right-click movement orders
+  have **not** been implemented yet.
+- Only the **home team (team 0)** can be selected in this prototype.
+- Selection changes the marker, not who is controlled by the match AI.
+- The camera is a straight-down **perspective** view, not orthographic yet.
+- The selection ring uses the project's pre-existing yellow large debug-circle
+  geometry (no new binary assets).
+- The screen-edge region is 25 px; wheel zoom has height bounds to prevent
+  clipping. Selection uses rendered player positions with a 34 px hit radius.
 
-1. Build using `build.bat` from the repository root.
-2. Start the game using `run.bat` and open a match.
-3. After the brief match-intro camera animation, press F8.
-4. Pan with IJKL, zoom with +/- and press F8 to return to the standard camera.
+## Windows testing
 
-## Next development phases
+From a terminal opened at the repository root:
 
-- Edge-of-screen mouse panning and mouse-wheel zoom.
-- Left-click single-player selection and drag-box multi-selection.
-- Right-click move orders while preserving each player's animation and ball interaction.
-- Tactics and queueing orders for multiple players.
+```cmd
+build.bat
+run.bat
+```
 
-This prototype has not been verified in a local Windows build; if MSVC reports
-an error, retain the last console messages to make the fix precise.
+During a match: press F8, move the pointer to a screen edge, scroll the wheel,
+middle-drag, then left-click a home player. Check that the ring follows the
+player and disappears when empty grass is clicked. Press F8 again to restore
+the normal broadcast view.
+
+**Windows C++ build and in-game rendering have not been tested by the assistant.**
+If you get a compiler error, share the first error and surrounding lines.
+
+## Next work
+
+- Drag rectangle and multi-player selection.
+- Right-click movement commands integrated with the existing controller/AI path.
+- Better selection UI and camera angle/orientation options.

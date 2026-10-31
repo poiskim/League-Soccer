@@ -324,10 +324,16 @@ protected:
   float cameraUserAngleFactor;
 
   // Optional experimental overhead camera. Keeps the legacy match camera available.
-  bool rtsCameraEnabled = false;
+  std::atomic<bool> rtsCameraEnabled{false};
   bool rtsCameraToggleHeld = false;
   Vector3 rtsCameraCenter = Vector3(0.0f, 0.0f, 0.0f);
   float rtsCameraHeight = 95.0f;
+  // Camera input is sampled on the game thread; selection is handled during Put().
+  bool rtsMiddleHeld = false;
+  int rtsPreviousMouseX = 0;
+  int rtsPreviousMouseY = 0;
+  bool rtsLeftHeld = false;
+  int rtsSelectedPlayerId = -1;
 
   std::shared_ptr<AnimCollection> anims;
 
