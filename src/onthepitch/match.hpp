@@ -217,6 +217,12 @@ public:
   void SetCameraParams(float zoom, float height, float fov, float angleFactor);
 
   void UpdateIngameCamera();
+  // The selected player's existing HumanController uses this move direction when idle.
+  bool GetRtsMoveDirection(const PlayerBase* player, Vector3& direction);
+  void CancelRtsMoveOrder(const PlayerBase* player);
+  bool IsRtsKeyboardTeam(int teamId) const {
+    return rtsCameraEnabled.load() && rtsKeyboardTeamId.load() == teamId;
+  }
 
   boost::intrusive_ptr<Camera> GetCamera() { return camera; }
   std::shared_ptr<AnimCollection> GetAnims() { return anims; }
@@ -333,7 +339,20 @@ protected:
   int rtsPreviousMouseX = 0;
   int rtsPreviousMouseY = 0;
   bool rtsLeftHeld = false;
-  int rtsSelectedPlayerId = -1;
+  int rtsLeftStartX = 0;
+  int rtsLeftStartY = 0;
+  int rtsSelectedPlayerId = -1;       // renderer-owned visual selection
+  std::atomic<int> rtsRequestedPlayerId{-1};  // renderer to game thread
+  std::atomic<int> rtsKeyboardTeamId{-1};
+  // The following move order is written in Put() and consumed in Process().
+  std::mutex rtsOrderMutex;
+  bool rtsPendingOrder = false;
+  int rtsPendingOrderPlayerId = -1;
+  Vector3 rtsPendingOrderTarget;
+  // Game-thread-only movement state.
+  int rtsMovingPlayerId = -1;
+  Vector3 rtsMovingTarget;
+  bool rtsRadarHidden = false;
 
   std::shared_ptr<AnimCollection> anims;
 
