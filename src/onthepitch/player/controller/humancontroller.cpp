@@ -608,6 +608,15 @@ void HumanController::Reset() {
 
 void HumanController::_GetHidInput(Vector3& rawInputDirection, float& rawInputVelocityFloat) {
   rawInputDirection = hid->GetDirection();
+  const float manualStickLength = rawInputDirection.GetLength();
+  if (manualStickLength >= analogStickDeadzone) {
+    // Keyboard/analog directions always override a queued mouse move order.
+    match->CancelRtsMoveOrder(CastPlayer());
+  } else {
+    Vector3 orderDirection;
+    if (match->GetRtsMoveDirection(CastPlayer(), orderDirection))
+      rawInputDirection = orderDirection;
+  }
   float stickLen = rawInputDirection.GetLength();
 
   if (stickLen < analogStickDeadzone) {
