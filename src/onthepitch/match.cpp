@@ -462,6 +462,8 @@ Match::Match(MatchData* matchData, const std::vector<IHIDevice*>& controllers)
 Match::~Match() {}
 
 void Match::Exit() {
+  // The camera may be active when the user quits to the main menu.
+  UserEventManager::GetInstance().SetTacticalMouseGrab(false);
   if (Verbose())
     printf("exiting match.. ");
 
@@ -989,6 +991,7 @@ void Match::UpdateIngameCamera() {
     }
   }
   rtsCameraToggleHeld = toggleDown;
+  input.SetTacticalMouseGrab(rtsCameraEnabled.load() && !pause);
 
   if (rtsCameraEnabled) {
     // LoL-like focus: Space recenters on the closest friendly player to the
