@@ -2610,7 +2610,18 @@ void OpenGLRenderer3D::operator()() {
   SDL_Event event;
 
   bool quit = false;
+  bool mouseGrabbed = false;
   while (!quit) {
+    // Do not let edge-scrolling accidentally click the desktop or another
+    // application. Only grab while this game window is focused and RTS mode
+    // explicitly requests it (Alt-Tab and F8 release the grab).
+    const bool wantGrab = window && contextIsActive &&
+        UserEventManager::GetInstance().WantsTacticalMouseGrab();
+    if (window && wantGrab != mouseGrabbed) {
+      SDL_SetWindowGrab(window, wantGrab ? SDL_TRUE : SDL_FALSE);
+      mouseGrabbed = wantGrab;
+    }
+
     // process messages
 
     while (SDL_PollEvent(&event)) {
@@ -2618,6 +2629,10 @@ void OpenGLRenderer3D::operator()() {
       if (event.type == SDL_WINDOWEVENT) {
         if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
           contextIsActive = false;
+          if (window && mouseGrabbed) {
+            SDL_SetWindowGrab(window, SDL_FALSE);
+            mouseGrabbed = false;
+          }
           // Releases that happen while unfocused are never delivered; drop
           // held keys/buttons so nothing stays "pressed" after Alt-Tab.
           UserEventManager::GetInstance().ReleaseAllInputs();
@@ -2666,6 +2681,8 @@ void OpenGLRenderer3D::operator()() {
     }
   }
 
+  if (window && mouseGrabbed)
+    SDL_SetWindowGrab(window, SDL_FALSE);
   Exit();
 
   IMG_Quit();

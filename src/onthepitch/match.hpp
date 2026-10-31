@@ -335,6 +335,9 @@ protected:
   Vector3 rtsCameraCenter = Vector3(0.0f, 0.0f, 0.0f);
   float rtsCameraHeight = 95.0f;
   // Camera input is sampled on the game thread; selection is handled during Put().
+  bool rtsSpaceHeld = false;
+  int rtsSpaceFollowPlayerId = -1;  // gameplay thread, follow while space is held
+  std::atomic<int> rtsSpaceSelectedPlayerId{-1};  // single event to graphics thread
   bool rtsMiddleHeld = false;
   int rtsPreviousMouseX = 0;
   int rtsPreviousMouseY = 0;
