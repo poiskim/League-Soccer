@@ -1,6 +1,7 @@
 #include "match.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <random>
 
 #include "../main.hpp"
