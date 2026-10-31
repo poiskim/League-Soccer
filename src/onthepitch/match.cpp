@@ -4,6 +4,7 @@
 #include <random>
 
 #include "../main.hpp"
+#include "../utils.hpp"
 #include "AIsupport/AIfunctions.hpp"
 #include "base/geometry/triangle.hpp"
 #include "base/log.hpp"
@@ -951,7 +952,7 @@ void Match::SetCameraParams(float zoom, float height, float fov, float angleFact
 
 void Match::UpdateIngameCamera() {
   // F8 switches between the existing broadcast camera and an overhead tactical view.
-  const auto& input = UserEventManager::GetInstance();
+  auto& input = UserEventManager::GetInstance();
   const bool toggleDown = input.GetKeyboardState(SDLK_F8);
   if (toggleDown && !rtsCameraToggleHeld) {
     rtsCameraEnabled = !rtsCameraEnabled;
